@@ -9,16 +9,29 @@ from django.contrib import messages
 
 from django.contrib.auth.decorators import login_required
 from .helper import createandUpdateAssets,updateLastPrices,createandUpdateNews,updatePrices,getAssetPrice
+from reco.stock_recommender import SimilarStocks, getPopularAssets
 
 from api import serializers 
 # Create your views here.
 
 class HomeView(View):
 
-	template_name = "main/home.html"
+	template_name = "main/index.html"
 
 	def get(self,request,*args,**kwargs):
-		return render(request=request,template_name=self.template_name,context={"category":models.AssetCategory.objects.all})
+		
+		top_n = 10 # top 10 news, can be reassigned 
+		
+		asset_ls = getPopularAssets()
+		top_assets = models.Asset.objects.filter(asset_ticker__in = asset_ls)[:top_n]
+		# TODO: after deploy to postgres, apply .distinct() to get distinct news from each asset; 
+		
+		#top_asset_news = models.News.objects.filter(asset__in=top_assets).order_by('-published_date')[:10]
+		top_asset_news = models.News.objects.filter(asset__asset_ticker__in=asset_ls).order_by('-published_date')[:top_n]
+
+		# you will get top ten news and assets(you can use for: .... top_asset.last_price)
+		return render(request=request,template_name=self.template_name,context={"top_assets":top_assets,"top_news":top_asset_news})
+		# return render(request=request,template_name=self.template_name,context={models.AssetCategory.objects.all})
 
 	def post(self, request, *args, **kwargs):
 		return HttpResponse("Page Loaded") 
@@ -80,8 +93,14 @@ class AssetDetailView(View):
 			slug = kwargs.get('slug')
 			assets = [c.asset_ticker for c in models.Asset.objects.all()]
 			if slug in assets:
+
 				asset = models.Asset.objects.filter(asset_ticker=slug).first()
-				return render(request,template_name=self.template_name,context={"asset": asset})
+				asset.view_count += 1 
+				asset.save()
+				all_news = models.News.objects.filter(asset=asset)
+				assetPrices = getAssetPrice(slug)  # do not save to the database directly gets from api 
+				assetPrices = serializers.AssetPriceSerializer(assetPrices, many=True)
+				return render(request,template_name=self.template_name,context={"asset": asset, "all_news":all_news,"asset_prices":assetPrices})
 		else:
 			all_assets = models.Asset.objects.all()
 			return render(request,template_name=self.template_name,context={"asset": all_assets}) #can be handled in in HTML 
@@ -89,7 +108,58 @@ class AssetDetailView(View):
 		return HttpResponse(f"{slug} does not correspond to anything.")
 
 	def post(self, request, *args, **kwargs):
-		return HttpResponse("Page Loaded") 
+
+		if request.POST["action"] == "favouriteAsset":
+			response_data = {}
+			asset_ticker = request.POST.get("asset_ticker")
+			asset = models.Asset.objects.filter(asset_ticker=asset_ticker).first()
+			user = request.user
+			favouriteAssetObj = models.FavouriteAsset.objects.get_or_create(user=user,asset=asset)
+			asset.save()
+		elif request.POST["action"] == "unfavouriteAsset":
+			response_data = {}
+			asset_ticker = request.POST.get("asset_ticker")
+			asset = models.Asset.objects.filter(asset_ticker=asset_ticker).first()
+			user = request.user
+			models.FavouriteAsset.objects.filter(user=user,asset=asset).delete()
+			asset.save()
+		elif request.POST["action"] == "likeComment":
+			response_data = {}
+			comment_id = request.POST.get("comment_id")
+			comment = models.Comment.objects.filter(id=comment_id).first()
+			user = request.user
+			comment.liked_users.add(user)
+			comment.save()
+		elif request.POST["action"] == "unlikeComment":
+			response_data = {}
+			comment_id = request.POST.get("comment_id")
+			comment = models.Comment.objects.filter(id=comment_id).first()
+			user = request.user
+			comment.liked_users.remove(user)
+			comment.save()
+		elif request.POST["action"] == "favouriteAssetCategory": # TODO: can be moved/copy to the category view if needed 
+			response_data = {}
+			asset_category_slug = request.POST.get("asset_category_slug")
+			assetCategory = models.AssetCategory.objects.filter(slug=asset_category_slug).first()
+			user = request.user
+			favouriteCategoryObj = models.FavouriteCategory.objects.get_or_create(user=user,asset_category=assetCategory)
+			assetCategory.save()
+		elif request.POST["action"] == "unfavouriteAssetCategory":
+			response_data = {}
+			asset_category_slug = request.POST.get("asset_category_slug")
+			assetCategory = models.AssetCategory.objects.filter(slug=asset_category_slug).first()
+			user = request.user
+			models.FavouriFavouriteCategoryteAsset.objects.filter(user=user,asset_category=assetCategory).delete()
+			assetCategory.save()
+
+
+
+
+
+
+
+
+		return HttpResponse("Page Loaded") #TODO: json will be returned 
 
 class AssetNewsView(View):
 	model = models.Asset
@@ -112,7 +182,6 @@ class AssetNewsView(View):
 
 	def post(self, request, *args, **kwargs):
 		return HttpResponse("Page Loaded") 
-
 
 class CurrentUserFavouriteAssetsView(View): #TODO:serializers
 	def get(self, request, *args, **kwargs):
@@ -137,7 +206,7 @@ class AssetPriceView(View):
 			if slug in assets:
 				#asset = models.Asset.objects.filter(asset_ticker=slug).first()
 				#ret = models.AssetPrice.objects.filter(asset=asset)
-				assetPrices = getAssetPrice(slug) # do not save to the database directly gets from api 
+				assetPrices = getAssetPrice(slug)  # do not save to the database directly gets from api 
 				serializer = serializers.AssetPriceSerializer(assetPrices, many=True)
 				return render(request,template_name=self.template_name,context={"prices":serializer}) # returns an object
 		else:

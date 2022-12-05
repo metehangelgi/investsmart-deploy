@@ -1,18 +1,15 @@
+import numpy as np
 from django.shortcuts import render
-
-# Create your views here.
 from rest_framework.views import APIView
-from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import permissions
-from main import models
-from main import helper
-from accounts import models as accountModels
-from main.models import CommentLike
+from main import models,helper
 from . import serializers
+from accounts import models as accountModels
+from reco.stock_recommender import SimilarStocks, getPopularAssets
 
-import numpy as np
+
 
 class NewsApiView(APIView):
     # add permission to check if user is authenticated
@@ -27,10 +24,22 @@ class NewsApiView(APIView):
                 asset = models.Asset.objects.filter(asset_ticker=slug).first()
                 news = models.News.objects.filter(asset=asset)
         else:
+            """sse = SimilarStocks()
+            sse.buildSimilarityDict()"""
+
             news = models.News.objects.all()
         
         serializer = serializers.NewsSerializer(news, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def post(self,request):
+
+        serializer= serializers.NewsSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class CurrentUserFavouriteAssetsApiView(APIView):
     def get(self, request, *args, **kwargs):
@@ -41,6 +50,15 @@ class CurrentUserFavouriteAssetsApiView(APIView):
         
         serializer = serializers.FavouriteAssetSerializer(ret, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def post(self,request):
+
+        serializer= serializers.FavouriteAssetSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class CurrentUserFavouriteCategoryApiView(APIView):
     def get(self, request, *args, **kwargs):
@@ -50,6 +68,14 @@ class CurrentUserFavouriteCategoryApiView(APIView):
         
         serializer = serializers.FavouriteCategorySerializer(ret, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def post(self,request):
+
+        serializer= serializers.FavouriteCategorySerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PriceApiView(APIView): 
     def get(self, request, *args, **kwargs):
@@ -58,8 +84,9 @@ class PriceApiView(APIView):
         assetPrices = None # TODO: handle if no assetPrices 
 
         if len(kwargs) > 0:
-            #print(kwargs) 
+            # TODO: slug can be category slug or asset_ticker handle it. 
             slug = kwargs.get('slug')
+
             assets = [c.asset_ticker for c in models.Asset.objects.all()]
             if slug in assets:
                 #asset = models.Asset.objects.filter(asset_ticker=slug).first()
@@ -71,7 +98,14 @@ class PriceApiView(APIView):
             serializer = serializers.AllAssetPriceSerializer(assets, many=True)
         
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def post(self,request):
 
+        serializer= serializers.AssetPriceSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class CategoryApiView(APIView):
     def get(self, request, *args, **kwargs):
@@ -80,21 +114,41 @@ class CategoryApiView(APIView):
         serializer = serializers.CategorySerializer(categories, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-from rest_framework import generics
-from main.models import Asset
-from .serializers import AssetSerializer
-from rest_framework import filters
+    def post(self,request):
 
-"""class QuestionsAPIView(generics.ListCreateAPIView):
-    search_fields = ['asset_name', 'asset_ticker']
-    filter_backends = (filters.SearchFilter,)
-    queryset = Asset.objects.all()
-    serializer_class = AssetSerializer"""
-class AssetsApiView(generics.ListAPIView):
-    search_fields = ['asset_name', 'asset_ticker']
-    filter_backends = (filters.SearchFilter,)
-    queryset = Asset.objects.all()
-    serializer_class = AssetSerializer
+        serializer= serializers.CategorySerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AssetsApiView(APIView):
+    def get(self, request, *args, **kwargs):
+
+        if len(kwargs) > 0:
+            #print(kwargs)
+            slug = kwargs.get('slug') 
+            assets = [c.asset_ticker for c in models.Asset.objects.all()]
+            if slug in assets: # if slug is asset_ticker
+                assets = models.Asset.objects.filter(asset_ticker=slug).first()
+            else: # if slug is asset category, return asset array
+                assets = models.Asset.objects.filter(asset_category__slug=slug)
+
+
+        else:
+            assets = models.Asset.objects.all()
+        
+        serializer = serializers.AssetSerializer(assets, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def post(self,request):
+
+        serializer= serializers.AssetSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class CommentsApiView(APIView):
     def get(self, request, *args, **kwargs):
@@ -109,7 +163,26 @@ class CommentsApiView(APIView):
         serializer = serializers.CommentSerializer(comments, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    def post(self,request):
 
+        serializer= serializers.CommentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TrendingStocksApiView(APIView):
+    def get(self, request, *args, **kwargs):
+        asset_ls = getPopularAssets()
+        ret = models.Asset.objects.filter(asset_ticker__in = asset_ls)
+
+        serializer = serializers.AssetSerializer(ret, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        pass
+"""
 class CommentsLikesApiView(APIView):
     def get(self, request, *args, **kwargs):
         if len(kwargs) > 0:
@@ -122,5 +195,4 @@ class CommentsLikesApiView(APIView):
         
         serializer = serializers.CommentLikeSerializer(commentslikes, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
-
+"""
